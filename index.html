@@ -120,6 +120,26 @@ dialog li button:hover,dialog li button:focus{background:var(--surface-2)}
 dialog input{width:100%}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:14px}
 [hidden]{display:none!important}
+.authcard{max-width:400px;margin:40px auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow)}
+.authcard form,.stack{display:flex;flex-direction:column;gap:12px}
+.authcard label,.stack label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.authcard input,.stack input{font-size:15px;padding:9px 10px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;color:var(--text)}
+.authlinks{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:14px 0 8px}
+.linkbtn{background:none;border:0;color:var(--accent);cursor:pointer;padding:2px 0;font-size:13px;text-align:left}
+.linkbtn:hover{text-decoration:underline}
+.msg.ok{color:var(--good)}
+.homehead,.editorbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.editorbar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;justify-content:flex-start}
+.editorbar input{flex:1;min-width:160px;font-size:16px;font-weight:600;background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 8px}
+.editorbar input:hover,.editorbar input:focus{border-color:var(--line);background:var(--surface-2)}
+.btn.user{display:inline-flex;align-items:center;gap:8px}
+.avatar{width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.dcard{display:flex;flex-direction:column;gap:6px;cursor:pointer}
+.dcard h4{margin:0;font-size:15px;word-break:break-word}
+.dcard .meta{font-size:12px;color:var(--muted)}
+.dcard .row{display:flex;gap:6px;margin-top:6px}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:90vw}
+#toast.on{opacity:1}
 .card,.kpi,.ins{box-shadow:var(--shadow)}
 .card:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .kpi .v,.count{font-variant-numeric:tabular-nums}
@@ -139,8 +159,49 @@ dialog input{width:100%}
       <button class="btn" id="btnSample">Datos de ejemplo</button>
       <button class="btn" id="btnPalette" title="Paleta de comandos">Comandos <kbd>Ctrl K</kbd></button>
       <button class="btn" id="btnHelp" aria-label="Atajos de teclado">?</button>
+      <button class="btn user" id="userBtn" hidden aria-label="Mi perfil"></button>
     </div>
   </header>
+
+  <!-- ===== Acceso ===== -->
+  <section id="authView" hidden>
+    <div class="authcard">
+      <h2 id="authTitle" style="margin-top:0">Iniciar sesión</h2>
+      <p class="hint" id="authSub">Accede a tu espacio de trabajo.</p>
+      <form id="authForm" novalidate>
+        <label id="fNameWrap" hidden>Nombre<input type="text" id="aName" autocomplete="name" maxlength="80"></label>
+        <label>Correo<input type="email" id="aEmail" autocomplete="email" required></label>
+        <label id="fPassWrap">Contraseña<input type="password" id="aPass" autocomplete="current-password" minlength="8" required></label>
+        <div class="msg" id="authMsg" role="alert" hidden></div>
+        <button class="btn primary" id="authGo" type="submit">Entrar</button>
+      </form>
+      <div class="authlinks">
+        <button class="linkbtn" id="toSignup">Tengo una invitación: crear cuenta</button>
+        <button class="linkbtn" id="toReset">Olvidé mi contraseña</button>
+        <button class="linkbtn" id="toLogin" hidden>Volver a iniciar sesión</button>
+      </div>
+      <p class="hint">El registro es solo por invitación. Si aún no tienes una, pídesela a un administrador.</p>
+    </div>
+  </section>
+
+  <!-- ===== Mis dashboards ===== -->
+  <section id="homeView" hidden>
+    <div class="homehead">
+      <div><h2 style="margin:0">Mis dashboards</h2><span class="hint" id="homeSub"></span></div>
+      <button class="btn primary" id="btnNewDash">+ Nuevo dashboard</button>
+    </div>
+    <div class="grid" id="dashList" style="margin-top:14px"></div>
+  </section>
+
+  <!-- ===== Editor ===== -->
+  <div id="editorView" hidden>
+  <div class="editorbar">
+    <button class="btn sm" id="btnBack">← Mis dashboards</button>
+    <input type="text" id="dTitle" aria-label="Título del dashboard" placeholder="Título del dashboard" maxlength="120">
+    <span class="hint" id="saveStatus" role="status"></span>
+    <span class="spacer"></span>
+    <button class="btn primary sm" id="btnSaveCloud">Guardar</button>
+  </div>
 
   <section id="dropSec">
     <div class="drop" id="drop">
@@ -160,8 +221,6 @@ dialog input{width:100%}
       <span aria-hidden="true">📄</span><strong id="fname"></strong>
       <span class="chip" id="fmeta"></span>
       <span class="spacer"></span>
-      <button class="btn sm" id="btnSave" title="Guardar vista en este navegador">Guardar vista</button>
-      <button class="btn sm" id="btnShare">Copiar enlace</button>
       <button class="btn sm" id="btnCsv">CSV</button>
       <button class="btn sm" id="btnXlsx">Excel</button>
       <button class="btn sm" id="btnPrint">PDF</button>
@@ -222,7 +281,30 @@ dialog input{width:100%}
       <div class="tscroll"><table id="tbl"></table></div>
     </div>
   </section>
+  </div>
 </div>
+
+<dialog id="dlgProfile">
+  <h3 style="margin-top:0">Mi perfil</h3>
+  <form id="profForm" class="stack" novalidate>
+    <label>Nombre<input type="text" id="pName" maxlength="80"></label>
+    <label>Correo<input type="text" id="pEmail" disabled></label>
+    <div><span class="chip" id="pRole"></span></div>
+    <div class="msg ok" id="profMsg" hidden></div>
+    <button class="btn primary sm" type="submit">Guardar perfil</button>
+  </form>
+  <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+  <form id="passForm" class="stack" novalidate>
+    <label>Nueva contraseña (mínimo 8 caracteres)<input type="password" id="pPass" autocomplete="new-password" minlength="8"></label>
+    <div class="msg" id="passMsg" hidden></div>
+    <button class="btn sm" type="submit">Cambiar contraseña</button>
+  </form>
+  <p style="margin-bottom:0;display:flex;gap:8px;justify-content:space-between">
+    <button class="btn sm" id="btnLogout">Cerrar sesión</button>
+    <button class="btn sm" onclick="this.closest('dialog').close()">Cerrar</button>
+  </p>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <dialog id="dlgPal"><input type="text" id="palIn" placeholder="Escribe un comando…" aria-label="Comando"><ul id="palList"></ul></dialog>
 <dialog id="dlgHelp">
@@ -234,6 +316,8 @@ dialog input{width:100%}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -246,6 +330,7 @@ const TL = {number: 'número', date: 'fecha', category: 'categoría', text: 'tex
 const AGG = {sum: 'Suma', avg: 'Promedio', count: 'Conteo', max: 'Máximo'};
 
 let RAW = [], DATA = {rows: [], cols: [], name: ''};
+let CURRENT_FILE = null;                      // archivo original (se sube al guardar)
 let OV = {};                                  // sobreescrituras de tipo por columna
 let S = {filters: {}, range: null};           // filtros activos (filters: key -> Set)
 let autoSpecs = [], customSpecs = [], entries = [];
@@ -329,6 +414,8 @@ async function handleFile(file){
   try {
     const raw = await readFile(file);
     OV = {};
+    CURRENT_FILE = file;
+    window.PL && PL.newData();
     load(raw, file.name);
   } catch (e) {
     $('#err').textContent = 'No pude leer el archivo: ' + e.message + '. Revisa que tenga encabezados en la primera fila.';
@@ -715,8 +802,8 @@ function apply(cfg){
   if (cfg.custom) customSpecs = cfg.custom.filter(c => colOf(c.x));
   if (cfg.auto && cfg.auto.length) autoSpecs = cfg.auto.filter(c => colOf(c.x));
 }
-function persist(){ try { localStorage.setItem(sig(), JSON.stringify(snapshot())); } catch (e) {} }
-function load(raw, name, keepCfg){
+function persist(){ window.PL && PL.markDirty(); }
+function load(raw, name, opts){
   RAW = raw;
   const {rows, cols} = normalize(raw);
   DATA = {rows, cols, name};
@@ -725,9 +812,7 @@ function load(raw, name, keepCfg){
   $('#fname').textContent = name; $('#fmeta').textContent = `${rows.length} filas · ${cols.length} columnas`;
   $('#dropSec').hidden = true; $('#app').hidden = false;
   themeChart(); fillFilterBox(); fillBuilder(); renderQuality();
-  let saved = null;
-  try { if (location.hash.length > 2) saved = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1))))); } catch (e) {}
-  if (!saved) try { saved = JSON.parse(localStorage.getItem(sig())); } catch (e) {}
+  const saved = opts && opts.cfg ? opts.cfg : null;
   if (saved && saved.ov && Object.keys(saved.ov).length){ OV = saved.ov; const n = normalize(raw); DATA = {...DATA, rows: n.rows, cols: n.cols}; autoSpecs = genAuto(); fillFilterBox(); fillBuilder(); renderQuality(); }
   if (saved) apply(saved);
   refresh(); window.scrollTo({top: 0});
@@ -742,8 +827,11 @@ function sample(){
     const precio = [120, 180, 450, 90][p];
     rows.push({fecha: d, región: regs[Math.floor(rnd() * 4)], producto: prods[p], unidades: u, ingresos: Math.round(u * precio * (.9 + rnd() * .2)), costo: Math.round(u * precio * (.45 + rnd() * .15))});
   }
-  OV = {}; try { history.replaceState(null, '', location.pathname); } catch (e) {}
-  load(rows, 'ejemplo_ventas.csv (datos de muestra)');
+  OV = {};
+  const csv = Papa.unparse(rows.map(r => ({...r, fecha: r.fecha.toISOString().slice(0, 10)})));
+  CURRENT_FILE = new File([csv], 'ejemplo_ventas.csv', {type: 'text/csv'});
+  window.PL && PL.newData();
+  load(rows, 'ejemplo_ventas.csv');
 }
 
 /* ================= Exportar / compartir ================= */
@@ -765,7 +853,7 @@ function dedup(){
 }
 
 /* ================= Eventos y atajos ================= */
-const goNew = () => { $('#app').hidden = true; $('#dropSec').hidden = false; $('#file').value = ''; };
+const goNew = () => { window.PL && PL.detach(); $('#app').hidden = true; $('#dropSec').hidden = false; $('#file').value = ''; };
 $('#btnPick').onclick = () => $('#file').click();
 $('#file').onchange = e => e.target.files[0] && handleFile(e.target.files[0]);
 $('#btnSample').onclick = sample;
@@ -776,8 +864,6 @@ $('#fAdd').onclick = () => { const k = $('#fCol').value, v = $('#fVal').value; i
 $('#fClear').onclick = clearFilters;
 const setRange = () => { const f = $('#dFrom').value, t = $('#dTo').value; S.range = f || t ? {from: f, to: t} : null; refresh(); };
 $('#dFrom').onchange = $('#dTo').onchange = setRange;
-$('#btnSave').onclick = () => { persist(); const b = $('#btnSave'); b.textContent = '✓ Guardada'; setTimeout(() => b.textContent = 'Guardar vista', 1500); };
-$('#btnShare').onclick = shareLink;
 $('#btnCsv').onclick = exportCsv; $('#btnXlsx').onclick = exportXlsx; $('#btnPrint').onclick = () => window.print();
 $('#btnDedup').onclick = dedup;
 $('#bAdd').onclick = () => {
@@ -792,8 +878,8 @@ document.addEventListener('drop', e => { if (e.dataTransfer.files.length){ e.pre
 
 const COMMANDS = [
   ['Cargar otro archivo', goNew], ['Limpiar filtros', clearFilters], ['Exportar CSV', exportCsv], ['Exportar Excel', exportXlsx],
-  ['Imprimir / guardar PDF', () => window.print()], ['Guardar vista', () => $('#btnSave').click()], ['Copiar enlace de la vista', shareLink],
-  ['Cargar datos de ejemplo', sample], ['Ver atajos de teclado', () => $('#dlgHelp').showModal()]
+  ['Imprimir / guardar PDF', () => window.print()], ['Guardar dashboard', () => $('#btnSaveCloud').click()],
+  ['Volver a mis dashboards', () => $('#btnBack').click()], ['Cargar datos de ejemplo', sample], ['Ver atajos de teclado', () => $('#dlgHelp').showModal()]
 ];
 function openPalette(){
   const dlg = $('#dlgPal'), inp = $('#palIn'), ul = $('#palList');
@@ -806,13 +892,14 @@ function openPalette(){
 $('#btnPalette').onclick = openPalette; $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 document.addEventListener('keydown', e => {
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); openPalette(); return; }
-  if (e.key === 'Escape' && !typing && !$('#app').hidden){ clearFilters(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); if (window.PL && PL.user) openPalette(); return; }
+  if (e.key === 'Escape' && !typing && !$('#app').hidden && !$('#editorView').hidden){ clearFilters(); return; }
   if (typing) return;
   if (e.key === '/'){ e.preventDefault(); $('#q').focus(); }
   if (e.key === '?') $('#dlgHelp').showModal();
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (DATA.rows.length){ themeChart(); refresh(); } });
 </script>
+<script src="platform.js"></script>
 </body>
 </html>

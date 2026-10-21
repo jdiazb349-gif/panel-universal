@@ -323,7 +323,7 @@ begin
   if not public.is_dashboard_owner(p_dashboard) then raise exception 'Solo el dueño puede publicar'; end if;
   if p_public then
     select public_slug into v_slug from public.dashboards where id = p_dashboard;
-    if v_slug is null then v_slug := encode(gen_random_bytes(9), 'hex'); end if;
+    if v_slug is null then v_slug := substr(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''), 1, 24); end if;
     update public.dashboards set is_public = true, public_slug = v_slug where id = p_dashboard;
   else
     update public.dashboards set is_public = false where id = p_dashboard;
@@ -459,3 +459,20 @@ create table if not exists public.ai_usage (
 );
 create index if not exists ai_usage_user_time_idx on public.ai_usage(user_id, created_at desc);
 alter table public.ai_usage enable row level security;
+
+-- ---------- Fase 3: dashboards compartidos conmigo ----------
+-- Un miembro no puede leer el perfil del dueño (RLS); esta función devuelve solo lo necesario.
+create or replace function public.shared_with_me()
+returns table (id uuid, title text, updated_at timestamptz, permission public.share_permission,
+               owner_name text, dataset_name text, row_count integer)
+language sql stable security definer set search_path = public as $$
+  select d.id, d.title, d.updated_at, m.permission, coalesce(p.full_name, p.email), t.name, t.row_count
+  from public.dashboard_members m
+  join public.dashboards d on d.id = m.dashboard_id
+  join public.profiles p on p.id = d.owner_id
+  left join public.datasets t on t.id = d.dataset_id
+  where m.user_id = auth.uid() and public.is_active()
+  order by d.updated_at desc;
+$$;
+revoke execute on function public.shared_with_me() from public, anon;
+grant execute on function public.shared_with_me() to authenticated;

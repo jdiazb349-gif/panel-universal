@@ -2,7 +2,7 @@
    Usa globals del motor de dashboards (index.html): DATA, CURRENT_FILE, OV, load, readFile, snapshot, esc, $. */
 (() => {
   const cfg = window.PANEL_CONFIG || {};
-  const VIEWS = ['authView', 'homeView', 'editorView', 'pubErrView'];
+  const VIEWS = ['authView', 'homeView', 'editorView', 'pubErrView', 'adminView'];
   const MAX_BYTES = 25 * 1024 * 1024;
   const PUBLIC_RE = /^#\/p\/([A-Za-z0-9_-]{8,64})$/;
 
@@ -28,6 +28,7 @@
     $('#btnSample').hidden = view !== 'editorView' || PL.role !== 'owner';
     $('#btnPalette').hidden = !PL.user;
     $('#userBtn').hidden = !PL.user;
+    $('#btnAdmin').hidden = !(PL.user && PL.profile && PL.profile.role === 'admin') || view === 'adminView';
   }
 
   function tr(err) {
@@ -52,6 +53,9 @@
   }
   const sb = supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey);
   PL.sb = sb; PL.applyRole = () => applyRole();
+  PL.show = show; PL.toast = toast; PL.tr = tr;
+  PL.goHome = () => { show('homeView'); loadList(); };
+  $('#btnAdmin').onclick = () => { if (PL.dirty && !$('#editorView').hidden && !$('#app').hidden && !confirm('Tienes cambios sin guardar. ¿Salir igual?')) return; PL.dirty = false; PL.openAdmin && PL.openAdmin(); };
 
   /* ---------- Formulario de acceso ---------- */
   let mode = 'login';

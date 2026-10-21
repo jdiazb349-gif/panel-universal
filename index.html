@@ -140,6 +140,16 @@ dialog input{width:100%}
 .dcard .row{display:flex;gap:6px;margin-top:6px}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:90vw}
 #toast.on{opacity:1}
+.banner{background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:var(--radius);padding:9px 14px;margin-bottom:12px;font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+a.btn{text-decoration:none;display:inline-block}
+a.btn.primary{color:var(--accent-ink)}
+.banner a.btn{color:var(--text)}
+.sh{margin:12px 0 6px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.shrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.shrow input{flex:1;min-width:150px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--text)}
+.shlist{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.shmember{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.shmember .who{flex:1;min-width:140px;display:flex;flex-direction:column;line-height:1.3;word-break:break-all}
 .card,.kpi,.ins{box-shadow:var(--shadow)}
 .card:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .kpi .v,.count{font-variant-numeric:tabular-nums}
@@ -191,6 +201,19 @@ dialog input{width:100%}
       <button class="btn primary" id="btnNewDash">+ Nuevo dashboard</button>
     </div>
     <div class="grid" id="dashList" style="margin-top:14px"></div>
+    <div id="sharedWrap" hidden>
+      <h2 style="margin-top:32px">Compartidos conmigo</h2>
+      <div class="grid" id="sharedList" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- ===== Enlace público no válido ===== -->
+  <section id="pubErrView" hidden>
+    <div class="authcard">
+      <h2 style="margin-top:0">Este dashboard no está disponible</h2>
+      <p class="hint">El enlace no existe, tiene un error o el dueño dejó de publicarlo.</p>
+      <p style="margin-bottom:0"><a class="btn primary" href="./">Ir al panel</a></p>
+    </div>
   </section>
 
   <!-- ===== Editor ===== -->
@@ -198,10 +221,13 @@ dialog input{width:100%}
   <div class="editorbar">
     <button class="btn sm" id="btnBack">← Mis dashboards</button>
     <input type="text" id="dTitle" aria-label="Título del dashboard" placeholder="Título del dashboard" maxlength="120">
+    <span class="chip" id="pubChip" hidden>🔗 Público</span>
     <span class="hint" id="saveStatus" role="status"></span>
     <span class="spacer"></span>
+    <button class="btn sm" id="btnShareDash" hidden>Compartir</button>
     <button class="btn primary sm" id="btnSaveCloud">Guardar</button>
   </div>
+  <div class="banner" id="pubBanner" role="status" hidden></div>
 
   <section id="dropSec">
     <div class="drop" id="drop">
@@ -283,6 +309,25 @@ dialog input{width:100%}
   </section>
   </div>
 </div>
+
+<dialog id="dlgShare" style="width:min(520px,94vw)">
+  <h3 style="margin-top:0">Compartir dashboard</h3>
+  <h4 class="sh">Personas con acceso</h4>
+  <form id="shForm" class="shrow" novalidate>
+    <input type="email" id="shEmail" placeholder="correo de la persona" aria-label="Correo de la persona" autocomplete="off">
+    <select id="shPerm" aria-label="Permiso"><option value="read">Solo lectura</option><option value="edit">Puede editar</option></select>
+    <button class="btn primary sm" type="submit">Compartir</button>
+  </form>
+  <div class="msg" id="shMsg" hidden></div>
+  <div id="shList" class="shlist"></div>
+  <p class="hint">Solo pueden recibir acceso personas que ya tienen cuenta. Quien tenga permiso para editar puede cambiar los gráficos y filtros, pero no los datos ni la publicación.</p>
+  <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+  <h4 class="sh">Enlace público</h4>
+  <p class="hint" id="pubState"></p>
+  <div id="pubLinkRow" class="shrow" hidden><input type="text" id="pubLink" readonly aria-label="Enlace público"><button class="btn sm" id="pubCopy" type="button">Copiar</button></div>
+  <button class="btn sm" id="pubToggle" type="button"></button>
+  <p style="text-align:right;margin-bottom:0"><button class="btn sm" onclick="this.closest('dialog').close()">Cerrar</button></p>
+</dialog>
 
 <dialog id="dlgProfile">
   <h3 style="margin-top:0">Mi perfil</h3>

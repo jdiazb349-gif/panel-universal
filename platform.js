@@ -2,14 +2,17 @@
    Usa globals del motor de dashboards (index.html): DATA, CURRENT_FILE, OV, load, readFile, snapshot, esc, $. */
 (() => {
   const cfg = window.PANEL_CONFIG || {};
-  const VIEWS = ['authView', 'homeView', 'editorView'];
+  const VIEWS = ['authView', 'homeView', 'editorView', 'pubErrView'];
   const MAX_BYTES = 25 * 1024 * 1024;
+  const PUBLIC_RE = /^#\/p\/([A-Za-z0-9_-]{8,64})$/;
 
+  // role: 'owner' (dueño o dashboard nuevo) | 'edit' | 'read' (compartidos) | 'public' (enlace público, sin sesión)
   const PL = window.PL = {
     user: null, profile: null, dashId: null, datasetId: null, dirty: false, recovering: false,
-    newData() { PL.dashId = null; PL.datasetId = null; PL.dirty = true; if (CURRENT_FILE) $('#dTitle').value = baseName(CURRENT_FILE.name); setStatus('Sin guardar'); },
-    detach() { PL.dashId = null; PL.datasetId = null; PL.dirty = true; setStatus('Sin guardar'); },
-    markDirty() { if (!PL.dirty) { PL.dirty = true; setStatus('Cambios sin guardar'); } }
+    role: 'owner', isPublic: false, slug: null, ownerName: '', publicMode: false,
+    newData() { PL.dashId = null; PL.datasetId = null; PL.role = 'owner'; PL.isPublic = false; PL.slug = null; PL.dirty = true; if (CURRENT_FILE) $('#dTitle').value = baseName(CURRENT_FILE.name); setStatus('Sin guardar'); applyRole(); },
+    detach() { PL.dashId = null; PL.datasetId = null; PL.role = 'owner'; PL.isPublic = false; PL.slug = null; PL.dirty = true; setStatus('Sin guardar'); applyRole(); },
+    markDirty() { if (PL.role === 'read' || PL.role === 'public') return; if (!PL.dirty) { PL.dirty = true; setStatus('Cambios sin guardar'); } }
   };
 
   const baseName = n => n.replace(/\.[^.]+$/, '');
@@ -22,7 +25,7 @@
 
   function show(view) {
     VIEWS.forEach(v => $('#' + v).hidden = v !== view);
-    $('#btnSample').hidden = view !== 'editorView';
+    $('#btnSample').hidden = view !== 'editorView' || PL.role !== 'owner';
     $('#btnPalette').hidden = !PL.user;
     $('#userBtn').hidden = !PL.user;
   }
@@ -34,6 +37,10 @@
     if (/Database error saving new user|solo por invitaci/i.test(m)) return 'Tu correo no tiene una invitación vigente. Pide una a un administrador.';
     if (/already registered/i.test(m)) return 'Ese correo ya tiene una cuenta. Inicia sesión.';
     if (c === 429 || /rate limit|over_email_send_rate_limit/i.test(m)) return 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
+    if (/No existe un usuario activo/i.test(m)) return 'Esa persona aún no tiene cuenta. Un administrador debe invitarla primero.';
+    if (/Ya eres el due/i.test(m)) return 'Tú ya eres el dueño de este dashboard.';
+    if (/Solo el due/i.test(m)) return 'Solo el dueño puede hacer esto.';
+    if (/row-level security|violates/i.test(m)) return 'No tienes permiso para hacer esto.';
     if (/same password/i.test(m)) return 'La nueva contraseña debe ser distinta de la actual.';
     if (/Password should be/i.test(m)) return 'La contraseña debe tener al menos 8 caracteres.';
     return m;
@@ -44,7 +51,7 @@
     return;
   }
   const sb = supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey);
-  PL.sb = sb;
+  PL.sb = sb; PL.applyRole = () => applyRole();
 
   /* ---------- Formulario de acceso ---------- */
   let mode = 'login';
@@ -102,7 +109,7 @@
   /* ---------- Sesión ---------- */
   let routed = false;
   async function onSession(session, force) {
-    if (PL.recovering) return;
+    if (PL.recovering || PL.publicMode) return;
     if (!force && PL.user && PL.user.id === session.user.id && PL.profile) return;
     PL.user = session.user;
     const {data: p, error} = await sb.from('profiles').select('*').eq('id', session.user.id).single();
@@ -118,6 +125,7 @@
     show('homeView'); loadList();
   }
   function onSignedOut() {
+    if (PL.publicMode) return;
     PL.user = null; PL.profile = null; PL.dashId = null; PL.datasetId = null; PL.dirty = false; routed = true;
     setMode('login'); show('authView');
   }
@@ -134,51 +142,94 @@
   async function loadList() {
     const grid = $('#dashList');
     grid.innerHTML = '<div class="empty">Cargando…</div>';
-    const {data, error} = await sb.from('dashboards').select('id,title,updated_at,datasets(name,row_count)')
-      .eq('owner_id', PL.user.id).order('updated_at', {ascending: false});
+    const [own, shared] = await Promise.all([
+      sb.from('dashboards').select('id,title,updated_at,is_public,datasets(name,row_count)').eq('owner_id', PL.user.id).order('updated_at', {ascending: false}),
+      sb.rpc('shared_with_me')
+    ]);
+    const {data, error} = own;
     if (error) { grid.innerHTML = ''; return toast('No se pudo cargar la lista: ' + tr(error)); }
-    $('#homeSub').textContent = data.length ? `${data.length} dashboard${data.length === 1 ? '' : 's'} privado${data.length === 1 ? '' : 's'}` : '';
+    $('#homeSub').textContent = data.length ? `${data.length} dashboard${data.length === 1 ? '' : 's'} propio${data.length === 1 ? '' : 's'}` : '';
     if (!data.length) {
       grid.innerHTML = '<div class="empty"><b>Aún no tienes dashboards.</b><br>Crea el primero subiendo un archivo CSV, Excel o JSON.<br><br><button class="btn primary" id="emptyNew">+ Nuevo dashboard</button></div>';
-      $('#emptyNew').onclick = newDash; return;
+      $('#emptyNew').onclick = newDash;
+    } else {
+      grid.innerHTML = data.map(d => `<div class="card dcard" data-id="${d.id}" tabindex="0" role="button" aria-label="Abrir ${esc(d.title)}">
+        <h4>${esc(d.title)}${d.is_public ? ' <span class="chip">🔗 Público</span>' : ''}</h4>
+        <div class="meta">${d.datasets ? esc(d.datasets.name) + ' · ' + fmt.format(d.datasets.row_count || 0) + ' filas' : 'Sin datos'}</div>
+        <div class="meta">Actualizado ${esc(fmtDate(d.updated_at))}</div>
+        <div class="row"><button class="btn sm" data-a="rename">Renombrar</button><button class="btn sm" data-a="del">Eliminar</button></div></div>`).join('');
     }
-    grid.innerHTML = data.map(d => `<div class="card dcard" data-id="${d.id}" tabindex="0" role="button" aria-label="Abrir ${esc(d.title)}">
-      <h4>${esc(d.title)}</h4>
-      <div class="meta">${d.datasets ? esc(d.datasets.name) + ' · ' + fmt.format(d.datasets.row_count || 0) + ' filas' : 'Sin datos'}</div>
+    // Compartidos conmigo
+    const list = (shared && shared.data) || [];
+    $('#sharedWrap').hidden = !list.length;
+    $('#sharedList').innerHTML = list.map(d => `<div class="card dcard" data-id="${d.id}" data-owner="${esc(d.owner_name || '')}" data-perm="${d.permission}" tabindex="0" role="button" aria-label="Abrir ${esc(d.title)}">
+      <h4>${esc(d.title)} <span class="chip">${d.permission === 'edit' ? '✏️ Puedes editar' : '👁 Solo lectura'}</span></h4>
+      <div class="meta">De ${esc(d.owner_name || 'otra persona')}</div>
+      <div class="meta">${d.dataset_name ? esc(d.dataset_name) + ' · ' + fmt.format(d.row_count || 0) + ' filas' : 'Sin datos'}</div>
       <div class="meta">Actualizado ${esc(fmtDate(d.updated_at))}</div>
-      <div class="row"><button class="btn sm" data-a="rename">Renombrar</button><button class="btn sm" data-a="del">Eliminar</button></div></div>`).join('');
+      <div class="row"><button class="btn sm" data-a="leave">Dejar de ver</button></div></div>`).join('');
   }
-  $('#dashList').addEventListener('click', e => {
+  async function leaveShared(id) {
+    if (!confirm('¿Quitar este dashboard de tu lista? Solo el dueño podrá volver a compartírtelo.')) return;
+    const {error} = await sb.from('dashboard_members').delete().eq('dashboard_id', id).eq('user_id', PL.user.id);
+    if (error) return toast('No se pudo quitar: ' + tr(error));
+    toast('Dashboard quitado de tu lista'); loadList();
+  }
+  const onListClick = e => {
     const card = e.target.closest('.dcard'); if (!card) return;
     const id = card.dataset.id, a = e.target.closest('[data-a]');
-    if (a) { e.stopPropagation(); return a.dataset.a === 'rename' ? renameDash(id) : deleteDash(id); }
-    openDash(id);
-  });
-  $('#dashList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('dcard')) openDash(e.target.dataset.id); });
+    if (a) { e.stopPropagation(); return a.dataset.a === 'rename' ? renameDash(id) : a.dataset.a === 'leave' ? leaveShared(id) : deleteDash(id); }
+    openDash(id, card.dataset.owner);
+  };
+  const onListKey = e => { if (e.key === 'Enter' && e.target.classList.contains('dcard')) openDash(e.target.dataset.id, e.target.dataset.owner); };
+  ['#dashList', '#sharedList'].forEach(s => { $(s).addEventListener('click', onListClick); $(s).addEventListener('keydown', onListKey); });
+
+  /* ---------- Permisos de la pantalla del editor ---------- */
+  function applyRole() {
+    const r = PL.role, ro = r === 'read' || r === 'public', owner = r === 'owner';
+    $('#btnShareDash').hidden = !(owner && PL.dashId);
+    $('#btnSaveCloud').hidden = ro;
+    $('#dTitle').readOnly = ro;
+    $('#btnNew').hidden = !owner;
+    $('#btnBack').hidden = r === 'public';
+    $('#pubChip').hidden = !(owner && PL.isPublic);
+    const b = $('#pubBanner');
+    const t = r === 'public' ? ['🔗 Dashboard público · solo lectura.', true]
+      : r === 'read' ? [`👁 Solo lectura · compartido por ${PL.ownerName || 'otra persona'}. Puedes explorar y filtrar, pero no guardar cambios.`, false]
+      : r === 'edit' ? [`✏️ Puedes editar · compartido por ${PL.ownerName || 'otra persona'}. Tus cambios se guardan en el dashboard de esa persona.`, false] : null;
+    b.hidden = !t;
+    $('#btnSample').hidden = $('#editorView').hidden || !owner;
+    if (t) { b.innerHTML = esc(t[0]) + (t[1] ? ' <a class="btn sm" href="./" id="pubGo">Ir al panel</a>' : ''); }
+  }
 
   function newDash() {
-    PL.dashId = null; PL.datasetId = null; PL.dirty = false; CURRENT_FILE = null;
+    PL.dashId = null; PL.datasetId = null; PL.dirty = false; CURRENT_FILE = null; PL.role = 'owner'; PL.isPublic = false; PL.slug = null;
     $('#app').hidden = true; $('#dropSec').hidden = false; $('#file').value = ''; $('#err').hidden = true;
-    $('#dTitle').value = ''; setStatus(''); show('editorView');
+    $('#dTitle').value = ''; setStatus(''); applyRole(); show('editorView');
   }
   $('#btnNewDash').onclick = newDash;
 
-  async function openDash(id) {
+  async function openDash(id, ownerName) {
     toast('Abriendo dashboard…');
     try {
       const {data: d, error} = await sb.from('dashboards').select('*, datasets(*)').eq('id', id).single();
       if (error) throw error;
       if (!d.datasets) throw new Error('Este dashboard no tiene datos asociados.');
+      let role = 'owner';
+      if (d.owner_id !== PL.user.id) {
+        const {data: m} = await sb.from('dashboard_members').select('permission').eq('dashboard_id', id).eq('user_id', PL.user.id).maybeSingle();
+        role = m && m.permission === 'edit' ? 'edit' : 'read';
+      }
       const {data: blob, error: e2} = await sb.storage.from('datasets').download(d.datasets.storage_path);
       if (e2) throw e2;
       const file = new File([blob], d.datasets.name);
       const raw = await readFile(file);
       OV = (d.config && d.config.ov) || {};
       CURRENT_FILE = file;
-      PL.dashId = d.id; PL.datasetId = d.dataset_id;
+      PL.dashId = d.id; PL.datasetId = d.dataset_id; PL.role = role; PL.isPublic = !!d.is_public; PL.slug = d.public_slug || null; PL.ownerName = ownerName || '';
       show('editorView');
       load(raw, d.datasets.name, {cfg: d.config || {}});
-      $('#dTitle').value = d.title; PL.dirty = false; setStatus('Guardado ' + fmtDate(d.updated_at));
+      $('#dTitle').value = d.title; PL.dirty = false; setStatus('Guardado ' + fmtDate(d.updated_at)); applyRole();
     } catch (err) { toast('No se pudo abrir: ' + tr(err)); show('homeView'); }
   }
 
@@ -207,6 +258,8 @@
   const safeName = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.\-]+/g, '_').slice(-80);
   async function save() {
     if ($('#app').hidden || !DATA.rows.length) return toast('Primero carga un archivo con datos.');
+    if (PL.role === 'read' || PL.role === 'public') return toast('Este dashboard es de solo lectura.');
+    if (PL.role === 'edit' && !PL.datasetId) return toast('No puedes cambiar los datos de un dashboard ajeno.');
     const btn = $('#btnSaveCloud'); btn.disabled = true; setStatus('Guardando…');
     try {
       let datasetId = PL.datasetId;
@@ -231,7 +284,7 @@
       } else {
         const r = await sb.from('dashboards').insert({owner_id: PL.user.id, ...payload}).select('id,updated_at').single();
         if (r.error) throw r.error;
-        PL.dashId = r.data.id;
+        PL.dashId = r.data.id; applyRole();
       }
       PL.dirty = false; setStatus('Guardado ' + new Date().toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})); toast('Dashboard guardado');
     } catch (err) { setStatus('Error al guardar'); toast('No se pudo guardar: ' + tr(err)); }
@@ -273,5 +326,86 @@
   });
   $('#btnLogout').onclick = async () => { $('#dlgProfile').close(); PL.dirty = false; await sb.auth.signOut(); };
 
+  /* ---------- Compartir y publicar (solo el dueño) ---------- */
+  const publicUrl = slug => location.origin + location.pathname + '#/p/' + slug;
+  async function loadMembers() {
+    const box = $('#shList'); box.textContent = 'Cargando…';
+    const {data, error} = await sb.rpc('list_dashboard_members', {p_dashboard: PL.dashId});
+    if (error) { box.textContent = ''; return msg($('#shMsg'), tr(error)); }
+    if (!data.length) { box.innerHTML = '<div class="hint">Aún no compartes este dashboard con nadie.</div>'; return; }
+    box.innerHTML = data.map(m => `<div class="shmember" data-uid="${m.user_id}">
+      <div class="who"><b>${esc(m.full_name || m.email)}</b><span class="hint">${esc(m.email)}</span></div>
+      <select data-a="perm" aria-label="Permiso de ${esc(m.email)}"><option value="read"${m.permission === 'read' ? ' selected' : ''}>Solo lectura</option><option value="edit"${m.permission === 'edit' ? ' selected' : ''}>Puede editar</option></select>
+      <button class="btn sm" data-a="rm" type="button" aria-label="Quitar a ${esc(m.email)}">Quitar</button></div>`).join('');
+  }
+  function syncPublic() {
+    const pub = PL.isPublic && PL.slug;
+    $('#pubState').textContent = pub ? 'Cualquier persona con este enlace puede ver el dashboard y descargar sus datos, sin iniciar sesión.' : 'El dashboard es privado. Si lo publicas, cualquier persona con el enlace podrá verlo y descargar sus datos, sin iniciar sesión.';
+    $('#pubLinkRow').hidden = !pub; if (pub) $('#pubLink').value = publicUrl(PL.slug);
+    $('#pubToggle').textContent = pub ? 'Dejar de publicar' : 'Publicar con enlace';
+    $('#pubChip').hidden = !(PL.role === 'owner' && PL.isPublic);
+  }
+  async function openShare() {
+    if (!PL.dashId) return toast('Primero guarda el dashboard.');
+    if (PL.dirty) await save();
+    msg($('#shMsg'), ''); $('#shEmail').value = ''; syncPublic(); $('#dlgShare').showModal(); loadMembers();
+  }
+  $('#btnShareDash').onclick = openShare;
+  $('#shForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#shEmail').value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return msg($('#shMsg'), 'Escribe un correo válido.');
+    msg($('#shMsg'), '');
+    const {error} = await sb.rpc('share_dashboard', {p_dashboard: PL.dashId, p_email: email, p_permission: $('#shPerm').value});
+    if (error) return msg($('#shMsg'), tr(error));
+    $('#shEmail').value = ''; msg($('#shMsg'), 'Compartido con ' + email, true); loadMembers();
+  });
+  $('#shList').addEventListener('change', async e => {
+    const sel = e.target.closest('[data-a="perm"]'); if (!sel) return;
+    const uid = sel.closest('.shmember').dataset.uid;
+    const {error} = await sb.from('dashboard_members').update({permission: sel.value}).eq('dashboard_id', PL.dashId).eq('user_id', uid);
+    msg($('#shMsg'), error ? tr(error) : 'Permiso actualizado', !error);
+  });
+  $('#shList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-a="rm"]'); if (!b) return;
+    const row = b.closest('.shmember'); if (!confirm('¿Quitar el acceso a esta persona?')) return;
+    const {error} = await sb.from('dashboard_members').delete().eq('dashboard_id', PL.dashId).eq('user_id', row.dataset.uid);
+    if (error) return msg($('#shMsg'), tr(error));
+    msg($('#shMsg'), 'Acceso quitado', true); loadMembers();
+  });
+  $('#pubToggle').onclick = async () => {
+    const pub = !(PL.isPublic && PL.slug);
+    if (pub && !confirm('Vas a publicar este dashboard.\n\nCualquier persona con el enlace podrá ver todos sus datos y descargarlos, sin iniciar sesión. Puedes dejar de publicarlo cuando quieras, pero quien ya haya descargado los datos los conservará.\n\n¿Publicar?')) return;
+    const {data, error} = await sb.rpc('set_dashboard_public', {p_dashboard: PL.dashId, p_public: pub});
+    if (error) return toast('No se pudo cambiar la publicación: ' + tr(error));
+    PL.isPublic = pub; if (pub) PL.slug = data; syncPublic(); applyRole();
+    toast(pub ? 'Dashboard publicado' : 'Dashboard ya no es público');
+  };
+  $('#pubCopy').onclick = () => { const url = $('#pubLink').value; (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Enlace copiado'), () => { $('#pubLink').select(); toast('Selecciona y copia el enlace (Ctrl+C)'); }); };
+
+  /* ---------- Vista pública por enlace (#/p/<código>), sin iniciar sesión ---------- */
+  async function startPublic(slug) {
+    PL.publicMode = true; routed = true;
+    try {
+      const {data: d, error} = await sb.rpc('get_public_dashboard', {p_slug: slug});
+      if (error) throw error;
+      if (!d || !d.dataset) throw new Error('not_found');
+      const {data: blob, error: e2} = await sb.storage.from('datasets').download(d.dataset.storage_path);
+      if (e2) throw e2;
+      const file = new File([blob], d.dataset.name);
+      const raw = await readFile(file);
+      OV = (d.config && d.config.ov) || {};
+      CURRENT_FILE = file; PL.role = 'public'; PL.dashId = null; PL.datasetId = null;
+      show('editorView');
+      load(raw, d.dataset.name, {cfg: d.config || {}});
+      $('#dTitle').value = d.title; setStatus(''); PL.dirty = false; applyRole();
+      document.title = d.title + ' · Panel Universal';
+    } catch (err) { show('pubErrView'); }
+  }
+  addEventListener('hashchange', () => { if (PUBLIC_RE.test(location.hash) || PL.publicMode) location.reload(); });
+
   setMode('login');
+  applyRole();
+  const pm = location.hash.match(PUBLIC_RE);
+  if (pm) startPublic(pm[1]);
 })();

@@ -241,7 +241,7 @@ create policy profiles_update on public.profiles for update to authenticated
 -- datasets: el dueño gestiona; lectura también para quien puede leer un dashboard que lo usa.
 drop policy if exists datasets_select on public.datasets;
 create policy datasets_select on public.datasets for select to authenticated
-  using (public.can_read_dataset(id));
+  using ((owner_id = auth.uid() and public.is_active()) or public.can_read_dataset(id));
 drop policy if exists datasets_insert on public.datasets;
 create policy datasets_insert on public.datasets for insert to authenticated
   with check (owner_id = auth.uid() and public.is_active());
